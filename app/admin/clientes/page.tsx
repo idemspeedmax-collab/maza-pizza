@@ -41,6 +41,12 @@ type Movimiento = {
   createdAt?: Timestamp | null;
 };
 
+type Promocion = {
+  titulo: string;
+  descripcion: string;
+  activa: boolean;
+};
+
 const ADMIN_KEY = "adminAuth";
 
 function slugify(text: string) {
@@ -81,6 +87,12 @@ export default function AdminClientesPage() {
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
   const [accionandoId, setAccionandoId] = useState<string | null>(null);
+
+  const [promoTitulo, setPromoTitulo] = useState("");
+  const [promoDescripcion, setPromoDescripcion] = useState("");
+  const [promoActiva, setPromoActiva] = useState(false);
+  const [cargandoPromo, setCargandoPromo] = useState(true);
+  const [guardandoPromo, setGuardandoPromo] = useState(false);
 
   const baseUrl = useMemo(() => {
     if (typeof window !== "undefined") return window.location.origin;
@@ -170,10 +182,37 @@ export default function AdminClientesPage() {
     }
   }
 
+  async function cargarPromocion() {
+    try {
+      setCargandoPromo(true);
+
+      const promoRef = doc(db, "promociones", "activa");
+      const snap = await getDoc(promoRef);
+
+      if (!snap.exists()) {
+        setPromoTitulo("");
+        setPromoDescripcion("");
+        setPromoActiva(false);
+        return;
+      }
+
+      const data = snap.data();
+
+      setPromoTitulo(data?.titulo ?? "");
+      setPromoDescripcion(data?.descripcion ?? "");
+      setPromoActiva(Boolean(data?.activa ?? false));
+    } catch (error) {
+      console.error("Error cargando promoción:", error);
+    } finally {
+      setCargandoPromo(false);
+    }
+  }
+
   useEffect(() => {
     if (!authChecked) return;
     cargarClientes();
     cargarMovimientos();
+    cargarPromocion();
   }, [authChecked]);
 
   async function registrarMovimiento(data: {
@@ -193,6 +232,42 @@ export default function AdminClientesPage() {
       premioActivado: data.premioActivado,
       createdAt: serverTimestamp(),
     });
+  }
+
+  async function guardarPromocion() {
+    const titulo = promoTitulo.trim();
+    const descripcion = promoDescripcion.trim();
+
+    if (promoActiva) {
+      if (!titulo) {
+        alert("Ingresa el título de la promoción.");
+        return;
+      }
+
+      if (!descripcion) {
+        alert("Ingresa la descripción de la promoción.");
+        return;
+      }
+    }
+
+    try {
+      setGuardandoPromo(true);
+
+      await setDoc(doc(db, "promociones", "activa"), {
+        titulo,
+        descripcion,
+        activa: promoActiva,
+        updatedAt: serverTimestamp(),
+      });
+
+      alert("Promoción actualizada correctamente.");
+      await cargarPromocion();
+    } catch (error) {
+      console.error("Error guardando promoción:", error);
+      alert("No se pudo guardar la promoción.");
+    } finally {
+      setGuardandoPromo(false);
+    }
   }
 
   async function crearCliente() {
@@ -460,7 +535,7 @@ ${link}
               Panel de Clientes
             </h1>
             <p className="mt-2 text-sm text-zinc-600">
-              Administra visitas, premios y clientes desde aquí.
+              Administra visitas, premios, clientes y promociones.
             </p>
           </div>
 
@@ -471,6 +546,67 @@ ${link}
             Cerrar sesión
           </button>
         </div>
+
+        <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-semibold">Promoción activa</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Edita la promoción que verán los clientes en su tarjeta.
+          </p>
+
+          {cargandoPromo ? (
+            <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+              Cargando promoción...
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-4 md:grid-cols-4">
+              <div className="md:col-span-1">
+                <label className="mb-2 block text-sm font-medium">
+                  Título
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: 🔥 Promo del día"
+                  value={promoTitulo}
+                  onChange={(e) => setPromoTitulo(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-sm font-medium">
+                  Descripción
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej: Por la compra de una pizza, llévate pan al ajo especial."
+                  value={promoDescripcion}
+                  onChange={(e) => setPromoDescripcion(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="md:col-span-1 flex flex-col justify-end gap-3">
+                <label className="flex items-center gap-3 rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={promoActiva}
+                    onChange={(e) => setPromoActiva(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  Promo activa
+                </label>
+
+                <button
+                  onClick={guardarPromocion}
+                  disabled={guardandoPromo}
+                  className="w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {guardandoPromo ? "Guardando..." : "Guardar promoción"}
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
 
         <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <h2 className="text-xl font-semibold">Crear cliente</h2>
