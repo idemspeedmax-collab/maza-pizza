@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 
@@ -15,12 +15,30 @@ function slugify(text: string) {
     .replace(/-+/g, "-");
 }
 
+const CLIENTE_STORAGE_KEY = "clienteId";
+
 export default function HomePage() {
   const router = useRouter();
   const [clienteInput, setClienteInput] = useState("");
   const [buscando, setBuscando] = useState(false);
+  const [revisandoSesion, setRevisandoSesion] = useState(true);
 
   const slugCliente = useMemo(() => slugify(clienteInput), [clienteInput]);
+
+  useEffect(() => {
+    try {
+      const clienteGuardado = localStorage.getItem(CLIENTE_STORAGE_KEY);
+
+      if (clienteGuardado) {
+        router.replace(`/cliente/${clienteGuardado}`);
+        return;
+      }
+    } catch (error) {
+      console.error("Error leyendo localStorage:", error);
+    } finally {
+      setRevisandoSesion(false);
+    }
+  }, [router]);
 
   function irATarjeta() {
     if (!slugCliente) {
@@ -29,6 +47,13 @@ export default function HomePage() {
     }
 
     setBuscando(true);
+
+    try {
+      localStorage.setItem(CLIENTE_STORAGE_KEY, slugCliente);
+    } catch (error) {
+      console.error("Error guardando cliente en localStorage:", error);
+    }
+
     router.push(`/cliente/${slugCliente}`);
   }
 
@@ -41,14 +66,27 @@ export default function HomePage() {
     irATarjeta();
   }
 
+  if (revisandoSesion) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-100 via-amber-100 to-orange-200 px-4 py-10">
+        <div className="rounded-2xl bg-white px-6 py-5 shadow-lg text-center">
+          <p className="text-lg font-semibold text-zinc-800">
+            Cargando...
+          </p>
+          <p className="mt-1 text-sm text-zinc-500">
+            Verificando acceso del cliente
+          </p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-yellow-100 via-amber-100 to-orange-200 px-4 py-10 text-zinc-900">
       <div className="mx-auto flex min-h-[85vh] max-w-5xl items-center justify-center">
         <div className="grid w-full gap-6 md:grid-cols-2">
-
           {/* IZQUIERDA */}
           <section className="rounded-3xl bg-white/90 p-8 shadow-xl ring-1 ring-black/5 backdrop-blur text-center">
-
             {/* LOGO */}
             <div className="flex justify-center mb-4">
               <Image
@@ -73,7 +111,6 @@ export default function HomePage() {
             </p>
 
             <div className="mt-6 grid gap-3 text-left">
-
               <div className="flex items-center gap-3 bg-zinc-100 p-3 rounded-xl">
                 🎁
                 <div>
@@ -103,13 +140,11 @@ export default function HomePage() {
                   </p>
                 </div>
               </div>
-
             </div>
           </section>
 
           {/* DERECHA */}
           <section className="rounded-3xl bg-white p-8 shadow-xl ring-1 ring-black/5">
-
             <h2 className="text-2xl font-bold mb-4">
               Bienvenido
             </h2>
@@ -119,7 +154,6 @@ export default function HomePage() {
               <h3 className="font-bold mb-2">Consultar mi tarjeta</h3>
 
               <form onSubmit={onSubmit} className="space-y-3">
-
                 <input
                   type="text"
                   placeholder="Ej: alvaro pizero"
@@ -135,7 +169,6 @@ export default function HomePage() {
                 >
                   {buscando ? "Ingresando..." : "Consultar mi tarjeta"}
                 </button>
-
               </form>
             </div>
 
@@ -150,9 +183,7 @@ export default function HomePage() {
                 Ir al panel de administración
               </button>
             </div>
-
           </section>
-
         </div>
       </div>
     </main>

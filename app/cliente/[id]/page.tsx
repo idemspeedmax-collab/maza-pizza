@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { QRCodeSVG } from "qrcode.react";
 import { db } from "@/lib/firebase";
@@ -12,8 +12,11 @@ type Cliente = {
   premioDisponible: boolean;
 };
 
+const CLIENTE_STORAGE_KEY = "clienteId";
+
 export default function ClientePage() {
   const params = useParams();
+  const router = useRouter();
   const id = String(params.id).toLowerCase();
 
   const [cliente, setCliente] = useState<Cliente | null>(null);
@@ -37,8 +40,23 @@ export default function ClientePage() {
           visitas: data.visitas || 0,
           premioDisponible: data.premioDisponible || false,
         });
+
+        try {
+          localStorage.setItem(CLIENTE_STORAGE_KEY, id);
+        } catch (error) {
+          console.error("Error guardando cliente en localStorage:", error);
+        }
       } else {
         setCliente(null);
+
+        try {
+          const guardado = localStorage.getItem(CLIENTE_STORAGE_KEY);
+          if (guardado === id) {
+            localStorage.removeItem(CLIENTE_STORAGE_KEY);
+          }
+        } catch (error) {
+          console.error("Error limpiando localStorage:", error);
+        }
       }
     } catch (error) {
       console.error(error);
@@ -51,6 +69,16 @@ export default function ClientePage() {
   useEffect(() => {
     if (id) obtenerCliente();
   }, [id]);
+
+  function cambiarCliente() {
+    try {
+      localStorage.removeItem(CLIENTE_STORAGE_KEY);
+    } catch (error) {
+      console.error("Error eliminando cliente de localStorage:", error);
+    }
+
+    router.push("/");
+  }
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-200 to-orange-300 px-4 py-10">
@@ -66,9 +94,18 @@ export default function ClientePage() {
         {loading ? (
           <p className="text-gray-500">Cargando...</p>
         ) : !cliente ? (
-          <p className="text-red-600 font-semibold">
-            Cliente no encontrado
-          </p>
+          <div className="space-y-4">
+            <p className="text-red-600 font-semibold">
+              Cliente no encontrado
+            </p>
+
+            <button
+              onClick={cambiarCliente}
+              className="w-full rounded-xl bg-black text-white py-3 font-semibold"
+            >
+              Volver al inicio
+            </button>
+          </div>
         ) : (
           <div className="space-y-5">
             <h2 className="text-2xl font-semibold text-gray-800">
@@ -113,6 +150,13 @@ export default function ClientePage() {
                 {enlaceCliente}
               </p>
             </div>
+
+            <button
+              onClick={cambiarCliente}
+              className="w-full rounded-xl border border-gray-300 py-3 font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Cambiar cliente
+            </button>
           </div>
         )}
       </div>
