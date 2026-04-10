@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -14,6 +15,7 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
+  limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -25,6 +27,17 @@ type Cliente = {
   premioDisponible: boolean;
   ultimaVisita?: Timestamp | null;
   premioCanjeadoEn?: Timestamp | null;
+  createdAt?: Timestamp | null;
+};
+
+type Movimiento = {
+  id: string;
+  clienteId: string;
+  clienteNombre: string;
+  tipo: "visita" | "canje";
+  visitasAntes: number;
+  visitasDespues: number;
+  premioActivado: boolean;
   createdAt?: Timestamp | null;
 };
 
@@ -52,7 +65,9 @@ function formatFecha(value?: Timestamp | null) {
 
 export default function AdminClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMovimientos, setLoadingMovimientos] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
 
   const [nombre, setNombre] = useState("");
@@ -121,10 +136,64 @@ export default function AdminClientesPage() {
     }
   }
 
+  async function cargarMovimientos() {
+    try {
+      setLoadingMovimientos(true);
+
+      const q = query(
+        collection(db, "cliente_movimientos"),
+        orderBy("createdAt", "desc"),
+        limit(20)
+      );
+
+      const snap = await getDocs(q);
+
+      const data: Movimiento[] = snap.docs.map((d) => {
+        const x = d.data();
+        return {
+          id: d.id,
+          clienteId: x.clienteId ?? "",
+          clienteNombre: x.clienteNombre ?? "",
+          tipo: x.tipo ?? "visita",
+          visitasAntes: Number(x.visitasAntes ?? 0),
+          visitasDespues: Number(x.visitasDespues ?? 0),
+          premioActivado: Boolean(x.premioActivado ?? false),
+          createdAt: x.createdAt ?? null,
+        };
+      });
+
+      setMovimientos(data);
+    } catch (error) {
+      console.error("Error cargando movimientos:", error);
+    } finally {
+      setLoadingMovimientos(false);
+    }
+  }
+
   useEffect(() => {
     if (!authChecked) return;
     cargarClientes();
+    cargarMovimientos();
   }, [authChecked]);
+
+  async function registrarMovimiento(data: {
+    clienteId: string;
+    clienteNombre: string;
+    tipo: "visita" | "canje";
+    visitasAntes: number;
+    visitasDespues: number;
+    premioActivado: boolean;
+  }) {
+    await addDoc(collection(db, "cliente_movimientos"), {
+      clienteId: data.clienteId,
+      clienteNombre: data.clienteNombre,
+      tipo: data.tipo,
+      visitasAntes: data.visitasAntes,
+      visitasDespues: data.visitasDespues,
+      premioActivado: data.premioActivado,
+      createdAt: serverTimestamp(),
+    });
+  }
 
   async function crearCliente() {
     const nombreLimpio = nombre.trim();
@@ -166,7 +235,7 @@ export default function AdminClientesPage() {
       setTelefono("");
       setSlugManual("");
 
-      await cargarClientes();
+      await Promise.all([cargarClientes(), cargarMovimientos()]);
       alert("Cliente creado correctamente.");
     } catch (error) {
       console.error("Error creando cliente:", error);
@@ -246,7 +315,8 @@ export default function AdminClientesPage() {
     try {
       setAccionandoId(cliente.id);
 
-      const nuevasVisitas = (cliente.visitas ?? 0) + 1;
+      const visitasAntes = Number(cliente.visitas ?? 0);
+      const nuevasVisitas = visitasAntes + 1;
       const ref = doc(db, "clientes", cliente.id);
 
       if (nuevasVisitas >= 5) {
@@ -256,15 +326,33 @@ export default function AdminClientesPage() {
           ultimaVisita: serverTimestamp(),
         });
 
+        await registrarMovimiento({
+          clienteId: cliente.id,
+          clienteNombre: cliente.nombre,
+          tipo: "visita",
+          visitasAntes,
+          visitasDespues: 0,
+          premioActivado: true,
+        });
+
         alert(`¡${cliente.nombre} ganó una pizza!`);
       } else {
         await updateDoc(ref, {
           visitas: nuevasVisitas,
           ultimaVisita: serverTimestamp(),
         });
+
+        await registrarMovimiento({
+          clienteId: cliente.id,
+          clienteNombre: cliente.nombre,
+          tipo: "visita",
+          visitasAntes,
+          visitasDespues: nuevasVisitas,
+          premioActivado: false,
+        });
       }
 
-      await cargarClientes();
+      await Promise.all([cargarClientes(), cargarMovimientos()]);
     } catch (error) {
       console.error("Error sumando visita:", error);
       alert("No se pudo registrar la visita.");
@@ -287,7 +375,16 @@ export default function AdminClientesPage() {
         premioCanjeadoEn: serverTimestamp(),
       });
 
-      await cargarClientes();
+      await registrarMovimiento({
+        clienteId: cliente.id,
+        clienteNombre: cliente.nombre,
+        tipo: "canje",
+        visitasAntes: Number(cliente.visitas ?? 0),
+        visitasDespues: Number(cliente.visitas ?? 0),
+        premioActivado: false,
+      });
+
+      await Promise.all([cargarClientes(), cargarMovimientos()]);
       alert(`Premio canjeado para ${cliente.nombre}.`);
     } catch (error) {
       console.error("Error canjeando premio:", error);
@@ -436,7 +533,7 @@ ${link}
           </div>
         </section>
 
-        <section>
+        <section className="mb-8">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-xl font-semibold">Clientes registrados</h2>
             <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm text-zinc-600 shadow-sm">
@@ -624,6 +721,79 @@ ${link}
                   </article>
                 );
               })}
+            </div>
+          )}
+        </section>
+
+        <section>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Movimientos recientes</h2>
+            <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm text-zinc-600 shadow-sm">
+              {movimientos.length} registro{movimientos.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {loadingMovimientos ? (
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500 shadow-sm">
+              Cargando movimientos...
+            </div>
+          ) : movimientos.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-8 text-center text-zinc-500">
+              Aún no hay movimientos registrados.
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-zinc-100 text-zinc-700">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold">Fecha</th>
+                      <th className="px-4 py-3 text-left font-semibold">Cliente</th>
+                      <th className="px-4 py-3 text-left font-semibold">Tipo</th>
+                      <th className="px-4 py-3 text-left font-semibold">Antes</th>
+                      <th className="px-4 py-3 text-left font-semibold">Después</th>
+                      <th className="px-4 py-3 text-left font-semibold">Premio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movimientos.map((mov) => (
+                      <tr key={mov.id} className="border-t border-zinc-200">
+                        <td className="px-4 py-3">{formatFecha(mov.createdAt)}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-zinc-800">
+                            {mov.clienteNombre || mov.clienteId}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {mov.clienteId}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {mov.tipo === "visita" ? (
+                            <span className="rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">
+                              Visita
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">
+                              Canje
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">{mov.visitasAntes}</td>
+                        <td className="px-4 py-3">{mov.visitasDespues}</td>
+                        <td className="px-4 py-3">
+                          {mov.premioActivado ? (
+                            <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-700">
+                              Activado
+                            </span>
+                          ) : (
+                            <span className="text-zinc-500">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </section>
