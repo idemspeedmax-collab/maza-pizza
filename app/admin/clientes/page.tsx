@@ -64,6 +64,23 @@ function formatFecha(value?: Timestamp | null) {
   }
 }
 
+function esHoy(value?: Timestamp | null) {
+  if (!value) return false;
+
+  try {
+    const fecha = value.toDate();
+    const ahora = new Date();
+
+    return (
+      fecha.getFullYear() === ahora.getFullYear() &&
+      fecha.getMonth() === ahora.getMonth() &&
+      fecha.getDate() === ahora.getDate()
+    );
+  } catch {
+    return false;
+  }
+}
+
 export default function AdminClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
@@ -102,6 +119,12 @@ export default function AdminClientesPage() {
 
   const slugGenerado = useMemo(() => slugify(nombre), [nombre]);
   const slugFinal = slugify(slugManual || slugGenerado);
+
+  const totalClientes = clientes.length;
+  const premiosActivos = clientes.filter((c) => c.premioDisponible).length;
+  const visitasHoy = movimientos.filter(
+    (m) => m.tipo === "visita" && esHoy(m.createdAt)
+  ).length;
 
   useEffect(() => {
     try {
@@ -156,7 +179,7 @@ export default function AdminClientesPage() {
       const q = query(
         collection(db, "cliente_movimientos"),
         orderBy("createdAt", "desc"),
-        limit(20)
+        limit(50)
       );
 
       const snap = await getDocs(q);
@@ -212,13 +235,7 @@ export default function AdminClientesPage() {
   async function cargarConfigAdmin() {
     try {
       setCargandoConfigAdmin(true);
-
-      const ref = doc(db, "configuracion", "admin");
-      const snap = await getDoc(ref);
-
-      if (!snap.exists()) {
-        return;
-      }
+      await getDoc(doc(db, "configuracion", "admin"));
     } catch (error) {
       console.error("Error cargando configuración admin:", error);
     } finally {
@@ -641,6 +658,29 @@ ${link}
             Cerrar sesión
           </button>
         </div>
+
+        <section className="mb-8 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <p className="text-sm text-zinc-500">Clientes totales</p>
+            <p className="mt-2 text-3xl font-extrabold text-zinc-900">
+              {loading ? "..." : totalClientes}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <p className="text-sm text-zinc-500">Premios activos</p>
+            <p className="mt-2 text-3xl font-extrabold text-green-700">
+              {loading ? "..." : premiosActivos}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+            <p className="text-sm text-zinc-500">Visitas de hoy</p>
+            <p className="mt-2 text-3xl font-extrabold text-blue-700">
+              {loadingMovimientos ? "..." : visitasHoy}
+            </p>
+          </div>
+        </section>
 
         <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <h2 className="text-xl font-semibold">Seguridad del panel</h2>
