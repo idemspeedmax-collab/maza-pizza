@@ -9,13 +9,13 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
-  limit,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -41,13 +41,8 @@ type Movimiento = {
   createdAt?: Timestamp | null;
 };
 
-type Promocion = {
-  titulo: string;
-  descripcion: string;
-  activa: boolean;
-};
-
 const ADMIN_KEY = "adminAuth";
+const DEFAULT_ADMIN_PASSWORD = "1234";
 
 function slugify(text: string) {
   return text
@@ -93,6 +88,12 @@ export default function AdminClientesPage() {
   const [promoActiva, setPromoActiva] = useState(false);
   const [cargandoPromo, setCargandoPromo] = useState(true);
   const [guardandoPromo, setGuardandoPromo] = useState(false);
+
+  const [claveActual, setClaveActual] = useState("");
+  const [nuevaClave, setNuevaClave] = useState("");
+  const [confirmarClave, setConfirmarClave] = useState("");
+  const [guardandoClave, setGuardandoClave] = useState(false);
+  const [cargandoConfigAdmin, setCargandoConfigAdmin] = useState(true);
 
   const baseUrl = useMemo(() => {
     if (typeof window !== "undefined") return window.location.origin;
@@ -208,12 +209,49 @@ export default function AdminClientesPage() {
     }
   }
 
+  async function cargarConfigAdmin() {
+    try {
+      setCargandoConfigAdmin(true);
+
+      const ref = doc(db, "configuracion", "admin");
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        return;
+      }
+    } catch (error) {
+      console.error("Error cargando configuración admin:", error);
+    } finally {
+      setCargandoConfigAdmin(false);
+    }
+  }
+
   useEffect(() => {
     if (!authChecked) return;
     cargarClientes();
     cargarMovimientos();
     cargarPromocion();
+    cargarConfigAdmin();
   }, [authChecked]);
+
+  async function obtenerClaveAdminGuardada() {
+    try {
+      const ref = doc(db, "configuracion", "admin");
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        return DEFAULT_ADMIN_PASSWORD;
+      }
+
+      const data = snap.data();
+      return typeof data?.adminPassword === "string" && data.adminPassword.trim()
+        ? data.adminPassword.trim()
+        : DEFAULT_ADMIN_PASSWORD;
+    } catch (error) {
+      console.error("Error obteniendo clave admin guardada:", error);
+      return DEFAULT_ADMIN_PASSWORD;
+    }
+  }
 
   async function registrarMovimiento(data: {
     clienteId: string;
@@ -253,12 +291,16 @@ export default function AdminClientesPage() {
     try {
       setGuardandoPromo(true);
 
-      await setDoc(doc(db, "promociones", "activa"), {
-        titulo,
-        descripcion,
-        activa: promoActiva,
-        updatedAt: serverTimestamp(),
-      });
+      await setDoc(
+        doc(db, "promociones", "activa"),
+        {
+          titulo,
+          descripcion,
+          activa: promoActiva,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       alert("Promoción actualizada correctamente.");
       await cargarPromocion();
@@ -267,6 +309,59 @@ export default function AdminClientesPage() {
       alert("No se pudo guardar la promoción.");
     } finally {
       setGuardandoPromo(false);
+    }
+  }
+
+  async function cambiarClaveAdmin() {
+    const actual = claveActual.trim();
+    const nueva = nuevaClave.trim();
+    const confirmar = confirmarClave.trim();
+
+    if (!actual || !nueva || !confirmar) {
+      alert("Completa los tres campos de clave.");
+      return;
+    }
+
+    if (nueva.length < 4) {
+      alert("La nueva clave debe tener al menos 4 caracteres.");
+      return;
+    }
+
+    if (nueva !== confirmar) {
+      alert("La confirmación no coincide con la nueva clave.");
+      return;
+    }
+
+    try {
+      setGuardandoClave(true);
+
+      const claveGuardada = await obtenerClaveAdminGuardada();
+
+      if (actual !== claveGuardada) {
+        alert("La clave actual no es correcta.");
+        return;
+      }
+
+      await setDoc(
+        doc(db, "configuracion", "admin"),
+        {
+          adminPassword: nueva,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      setClaveActual("");
+      setNuevaClave("");
+      setConfirmarClave("");
+
+      alert("Clave del panel actualizada correctamente.");
+      await cargarConfigAdmin();
+    } catch (error) {
+      console.error("Error cambiando clave admin:", error);
+      alert("No se pudo actualizar la clave.");
+    } finally {
+      setGuardandoClave(false);
     }
   }
 
@@ -546,6 +641,67 @@ ${link}
             Cerrar sesión
           </button>
         </div>
+
+        <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-semibold">Seguridad del panel</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Cambia la clave de acceso del administrador.
+          </p>
+
+          {cargandoConfigAdmin ? (
+            <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+              Cargando configuración...
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-4 md:grid-cols-4">
+              <div className="md:col-span-1">
+                <label className="mb-2 block text-sm font-medium">
+                  Clave actual
+                </label>
+                <input
+                  type="password"
+                  value={claveActual}
+                  onChange={(e) => setClaveActual(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="md:col-span-1">
+                <label className="mb-2 block text-sm font-medium">
+                  Nueva clave
+                </label>
+                <input
+                  type="password"
+                  value={nuevaClave}
+                  onChange={(e) => setNuevaClave(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="md:col-span-1">
+                <label className="mb-2 block text-sm font-medium">
+                  Confirmar clave
+                </label>
+                <input
+                  type="password"
+                  value={confirmarClave}
+                  onChange={(e) => setConfirmarClave(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="md:col-span-1 flex items-end">
+                <button
+                  onClick={cambiarClaveAdmin}
+                  disabled={guardandoClave}
+                  className="w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {guardandoClave ? "Guardando..." : "Actualizar clave"}
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
 
         <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <h2 className="text-xl font-semibold">Promoción activa</h2>
