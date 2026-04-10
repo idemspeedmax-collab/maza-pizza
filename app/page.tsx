@@ -1,288 +1,177 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  doc,
-  getDoc,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
-type EstadoCliente = {
-  existe: boolean;
-  nombre: string;
-  visitas: number;
-  premioDisponible: boolean;
-};
+function slugify(text: string) {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
 
-export default function Home() {
-  const [nombre, setNombre] = useState("");
-  const [guardando, setGuardando] = useState(false);
+export default function HomePage() {
+  const router = useRouter();
+  const [clienteInput, setClienteInput] = useState("");
   const [buscando, setBuscando] = useState(false);
-  const [canjeando, setCanjeando] = useState(false);
-  const [estadoCliente, setEstadoCliente] = useState<EstadoCliente | null>(null);
 
-  const obtenerEstadoCliente = async (nombreBase: string) => {
-    const nombreLimpio = nombreBase.trim();
+  const slugCliente = useMemo(() => slugify(clienteInput), [clienteInput]);
 
-    if (!nombreLimpio) {
-      setEstadoCliente(null);
+  function irATarjeta() {
+    const slug = slugCliente;
+
+    if (!slug) {
+      alert("Escribe tu nombre, código o identificador.");
       return;
     }
 
-    const idCliente = nombreLimpio.toLowerCase();
-    const clienteRef = doc(db, "clientes", idCliente);
-    const clienteSnap = await getDoc(clienteRef);
+    setBuscando(true);
+    router.push(`/cliente/${slug}`);
+  }
 
-    if (clienteSnap.exists()) {
-      const data = clienteSnap.data();
+  function irAdmin() {
+    router.push("/admin/clientes");
+  }
 
-      setEstadoCliente({
-        existe: true,
-        nombre: typeof data.nombre === "string" ? data.nombre : nombreLimpio,
-        visitas: typeof data.visitas === "number" ? data.visitas : 0,
-        premioDisponible:
-          typeof data.premioDisponible === "boolean"
-            ? data.premioDisponible
-            : false,
-      });
-    } else {
-      setEstadoCliente({
-        existe: false,
-        nombre: nombreLimpio,
-        visitas: 0,
-        premioDisponible: false,
-      });
-    }
-  };
-
-  useEffect(() => {
-    const consultarCliente = async () => {
-      const nombreLimpio = nombre.trim();
-
-      if (!nombreLimpio) {
-        setEstadoCliente(null);
-        return;
-      }
-
-      setBuscando(true);
-
-      try {
-        await obtenerEstadoCliente(nombreLimpio);
-      } catch (error) {
-        console.error("Error al consultar cliente:", error);
-        setEstadoCliente(null);
-      } finally {
-        setBuscando(false);
-      }
-    };
-
-    const timeout = setTimeout(() => {
-      consultarCliente();
-    }, 300);
-
-    return () => clearTimeout(timeout);
-  }, [nombre]);
-
-  const registrarVisita = async () => {
-    const nombreLimpio = nombre.trim();
-
-    if (!nombreLimpio) {
-      alert("Escribe el nombre del cliente");
-      return;
-    }
-
-    setGuardando(true);
-
-    try {
-      const idCliente = nombreLimpio.toLowerCase();
-      const clienteRef = doc(db, "clientes", idCliente);
-      const clienteSnap = await getDoc(clienteRef);
-
-      if (!clienteSnap.exists()) {
-        await setDoc(clienteRef, {
-          nombre: nombreLimpio,
-          visitas: 1,
-          ultimaVisita: serverTimestamp(),
-          creadoEn: serverTimestamp(),
-          premioDisponible: false,
-        });
-
-        setEstadoCliente({
-          existe: true,
-          nombre: nombreLimpio,
-          visitas: 1,
-          premioDisponible: false,
-        });
-
-        alert("Cliente creado y primera visita registrada ✅");
-      } else {
-        const data = clienteSnap.data();
-        const visitasActuales =
-          typeof data.visitas === "number" ? data.visitas : 0;
-
-        const nuevasVisitas = visitasActuales + 1;
-
-        if (nuevasVisitas >= 5) {
-          await updateDoc(clienteRef, {
-            nombre: nombreLimpio,
-            visitas: 0,
-            ultimaVisita: serverTimestamp(),
-            premioDisponible: true,
-          });
-
-          setEstadoCliente({
-            existe: true,
-            nombre: nombreLimpio,
-            visitas: 0,
-            premioDisponible: true,
-          });
-
-          alert("🎉 ¡Cliente ganó una pizza gratis! Conteo reiniciado a 0 🍕");
-        } else {
-          await updateDoc(clienteRef, {
-            nombre: nombreLimpio,
-            visitas: nuevasVisitas,
-            ultimaVisita: serverTimestamp(),
-            premioDisponible: false,
-          });
-
-          setEstadoCliente({
-            existe: true,
-            nombre: nombreLimpio,
-            visitas: nuevasVisitas,
-            premioDisponible: false,
-          });
-
-          alert(`Visita registrada ✅ Lleva ${nuevasVisitas} de 5`);
-        }
-      }
-    } catch (error) {
-      console.error("Error al registrar visita:", error);
-      alert("Hubo un error al registrar la visita ❌");
-    } finally {
-      setGuardando(false);
-    }
-  };
-
-  const canjearPremio = async () => {
-    const nombreLimpio = nombre.trim();
-
-    if (!nombreLimpio) {
-      alert("Escribe el nombre del cliente");
-      return;
-    }
-
-    if (!estadoCliente?.existe) {
-      alert("El cliente no existe todavía");
-      return;
-    }
-
-    if (!estadoCliente.premioDisponible) {
-      alert("Este cliente no tiene premio disponible");
-      return;
-    }
-
-    setCanjeando(true);
-
-    try {
-      const idCliente = nombreLimpio.toLowerCase();
-      const clienteRef = doc(db, "clientes", idCliente);
-
-      await updateDoc(clienteRef, {
-        premioDisponible: false,
-        premioCanjeadoEn: serverTimestamp(),
-      });
-
-      setEstadoCliente((prev) =>
-        prev
-          ? {
-              ...prev,
-              premioDisponible: false,
-            }
-          : prev
-      );
-
-      alert("Premio canjeado correctamente ✅");
-      await obtenerEstadoCliente(nombreLimpio);
-    } catch (error) {
-      console.error("Error al canjear premio:", error);
-      alert("Hubo un error al canjear el premio ❌");
-    } finally {
-      setCanjeando(false);
-    }
-  };
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    irATarjeta();
+  }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-[#d9d3b3] px-6">
-      <h1 className="text-5xl font-bold text-red-900 text-center">
-        Maza & Pizza 🍕
-      </h1>
-
-      <p className="mt-4 text-2xl text-gray-900 text-center">
-        Sistema de fidelización
-      </p>
-
-      <div className="mt-10 w-full max-w-md">
-        <input
-          type="text"
-          placeholder="Nombre del cliente"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
-          className="w-full rounded-xl border border-gray-400 bg-white px-4 py-3 text-lg text-gray-900 outline-none focus:border-green-700"
-        />
-
-        <button
-          onClick={registrarVisita}
-          disabled={guardando || canjeando}
-          className="mt-4 w-full rounded-xl bg-green-800 px-8 py-4 text-2xl font-semibold text-white transition hover:bg-green-900 disabled:cursor-not-allowed disabled:opacity-70"
-        >
-          {guardando ? "Guardando..." : "Registrar visita"}
-        </button>
-
-        {estadoCliente?.existe && estadoCliente.premioDisponible && (
-          <button
-            onClick={canjearPremio}
-            disabled={guardando || canjeando}
-            className="mt-3 w-full rounded-xl bg-red-700 px-8 py-4 text-xl font-semibold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {canjeando ? "Canjeando..." : "Canjear premio"}
-          </button>
-        )}
-
-        <div className="mt-6 rounded-xl bg-white/70 p-4 text-center shadow-sm">
-          {!nombre.trim() ? (
-            <p className="text-gray-700">Escribe un nombre para consultar.</p>
-          ) : buscando ? (
-            <p className="text-gray-700">Buscando cliente...</p>
-          ) : estadoCliente?.existe ? (
-            <div className="space-y-2">
-              <p className="text-lg font-semibold text-gray-900">
-                Cliente: {estadoCliente.nombre}
+    <main className="min-h-screen bg-gradient-to-br from-yellow-100 via-amber-100 to-orange-200 px-4 py-10 text-zinc-900">
+      <div className="mx-auto flex min-h-[85vh] max-w-5xl items-center justify-center">
+        <div className="grid w-full gap-6 md:grid-cols-2">
+          {/* BLOQUE IZQUIERDO */}
+          <section className="rounded-3xl bg-white/90 p-8 shadow-xl ring-1 ring-black/5 backdrop-blur">
+            <div className="mb-6">
+              <h1 className="text-4xl font-extrabold tracking-tight text-red-700 md:text-5xl">
+                Maza & Pizza 🍕
+              </h1>
+              <p className="mt-3 text-lg text-zinc-700">
+                Sistema de fidelización digital
               </p>
-              <p className="text-gray-800">
-                Visitas: <strong>{estadoCliente.visitas} / 5</strong>
+              <p className="mt-2 text-sm text-zinc-500">
+                Consulta tus visitas, revisa si ya tienes premio y accede a tu
+                tarjeta digital en segundos.
               </p>
-              {estadoCliente.premioDisponible ? (
-                <p className="text-lg font-bold text-green-700">
-                  🎉 Premio disponible: pizza gratis
+            </div>
+
+            <div className="grid gap-3 rounded-2xl bg-zinc-50 p-4 ring-1 ring-zinc-200">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-lg">
+                  🎁
+                </div>
+                <div>
+                  <p className="font-semibold">Premios por visitas</p>
+                  <p className="text-sm text-zinc-600">
+                    Acumula visitas y gana tu pizza gratis.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 text-lg">
+                  📱
+                </div>
+                <div>
+                  <p className="font-semibold">Tarjeta digital</p>
+                  <p className="text-sm text-zinc-600">
+                    Sin tarjeta física. Todo desde tu celular.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-lg">
+                  ⚡
+                </div>
+                <div>
+                  <p className="font-semibold">Acceso rápido</p>
+                  <p className="text-sm text-zinc-600">
+                    Ingresa con tu identificador y consulta tu avance.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* BLOQUE DERECHO */}
+          <section className="rounded-3xl bg-white p-8 shadow-xl ring-1 ring-black/5">
+            <div className="mb-6">
+              <h2 className="text-2xl font-bold text-zinc-900">
+                Bienvenido
+              </h2>
+              <p className="mt-2 text-sm text-zinc-600">
+                Elige cómo deseas ingresar al sistema.
+              </p>
+            </div>
+
+            {/* CLIENTE */}
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
+              <div className="mb-4">
+                <h3 className="text-lg font-bold text-zinc-900">
+                  Consultar mi tarjeta
+                </h3>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Escribe tu nombre o identificador para ir a tu tarjeta.
                 </p>
-              ) : (
-                <p className="text-gray-700">Aún no tiene premio disponible.</p>
-              )}
+              </div>
+
+              <form onSubmit={onSubmit} className="space-y-3">
+                <input
+                  type="text"
+                  placeholder="Ej: alvaro pizero"
+                  value={clienteInput}
+                  onChange={(e) => setClienteInput(e.target.value)}
+                  className="w-full rounded-2xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+
+                <div className="rounded-xl bg-white px-4 py-3 text-sm text-zinc-500 ring-1 ring-zinc-200">
+                  Ruta final:{" "}
+                  <span className="font-medium text-zinc-700">
+                    /cliente/{slugCliente || "slug-del-cliente"}
+                  </span>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={buscando}
+                  className="w-full rounded-2xl bg-green-700 px-4 py-3 text-base font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {buscando ? "Ingresando..." : "Consultar mi tarjeta"}
+                </button>
+              </form>
             </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-lg font-semibold text-gray-900">
-                Cliente nuevo
-              </p>
-              <p className="text-gray-700">
-                Al registrar la visita empezará con 1 de 5.
-              </p>
+
+            {/* ADMIN */}
+            <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-5">
+              <div className="mb-4">
+                <h3 className="text-lg font-bold text-zinc-900">
+                  Administrador
+                </h3>
+                <p className="mt-1 text-sm text-zinc-600">
+                  Accede al panel para registrar visitas, crear clientes y
+                  gestionar premios.
+                </p>
+              </div>
+
+              <button
+                onClick={irAdmin}
+                className="w-full rounded-2xl bg-black px-4 py-3 text-base font-semibold text-white transition hover:opacity-90"
+              >
+                Ir al panel de administración
+              </button>
             </div>
-          )}
+
+            <p className="mt-6 text-center text-xs text-zinc-500">
+              Maza & Pizza · fidelización digital
+            </p>
+          </section>
         </div>
       </div>
     </main>
