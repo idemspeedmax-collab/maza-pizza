@@ -44,6 +44,8 @@ type Movimiento = {
 const ADMIN_KEY = "adminAuth";
 const DEFAULT_ADMIN_PASSWORD = "1234";
 const DEFAULT_VISITAS_PARA_PREMIO = 5;
+const DEFAULT_NOMBRE_PREMIO = "Pizza gratis";
+const DEFAULT_MENSAJE_PREMIO = "Acércate al local y reclama tu premio disponible.";
 
 function slugify(text: string) {
   return text
@@ -116,6 +118,8 @@ export default function AdminClientesPage() {
   const [visitasParaPremio, setVisitasParaPremio] = useState(
     DEFAULT_VISITAS_PARA_PREMIO
   );
+  const [nombrePremio, setNombrePremio] = useState(DEFAULT_NOMBRE_PREMIO);
+  const [mensajePremio, setMensajePremio] = useState(DEFAULT_MENSAJE_PREMIO);
   const [guardandoReglas, setGuardandoReglas] = useState(false);
   const [cargandoReglas, setCargandoReglas] = useState(true);
 
@@ -259,20 +263,39 @@ export default function AdminClientesPage() {
 
       if (!snap.exists()) {
         setVisitasParaPremio(DEFAULT_VISITAS_PARA_PREMIO);
+        setNombrePremio(DEFAULT_NOMBRE_PREMIO);
+        setMensajePremio(DEFAULT_MENSAJE_PREMIO);
         return;
       }
 
       const data = snap.data();
-      const valor = Number(data?.visitasParaPremio ?? DEFAULT_VISITAS_PARA_PREMIO);
+
+      const valorVisitas = Number(
+        data?.visitasParaPremio ?? DEFAULT_VISITAS_PARA_PREMIO
+      );
 
       setVisitasParaPremio(
-        Number.isFinite(valor) && valor > 0
-          ? Math.floor(valor)
+        Number.isFinite(valorVisitas) && valorVisitas > 0
+          ? Math.floor(valorVisitas)
           : DEFAULT_VISITAS_PARA_PREMIO
+      );
+
+      setNombrePremio(
+        typeof data?.nombrePremio === "string" && data.nombrePremio.trim()
+          ? data.nombrePremio.trim()
+          : DEFAULT_NOMBRE_PREMIO
+      );
+
+      setMensajePremio(
+        typeof data?.mensajePremio === "string" && data.mensajePremio.trim()
+          ? data.mensajePremio.trim()
+          : DEFAULT_MENSAJE_PREMIO
       );
     } catch (error) {
       console.error("Error cargando reglas:", error);
       setVisitasParaPremio(DEFAULT_VISITAS_PARA_PREMIO);
+      setNombrePremio(DEFAULT_NOMBRE_PREMIO);
+      setMensajePremio(DEFAULT_MENSAJE_PREMIO);
     } finally {
       setCargandoReglas(false);
     }
@@ -367,9 +390,21 @@ export default function AdminClientesPage() {
 
   async function guardarReglas() {
     const valor = Number(visitasParaPremio);
+    const premio = nombrePremio.trim();
+    const mensaje = mensajePremio.trim();
 
     if (!Number.isFinite(valor) || valor <= 0) {
       alert("Ingresa un número válido mayor a 0.");
+      return;
+    }
+
+    if (!premio) {
+      alert("Ingresa el nombre del premio.");
+      return;
+    }
+
+    if (!mensaje) {
+      alert("Ingresa el mensaje del premio.");
       return;
     }
 
@@ -380,12 +415,14 @@ export default function AdminClientesPage() {
         doc(db, "configuracion", "reglas"),
         {
           visitasParaPremio: Math.floor(valor),
+          nombrePremio: premio,
+          mensajePremio: mensaje,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
 
-      alert("Regla de premio actualizada correctamente.");
+      alert("Reglas de premio actualizadas correctamente.");
       await cargarReglas();
     } catch (error) {
       console.error("Error guardando reglas:", error);
@@ -588,7 +625,7 @@ export default function AdminClientesPage() {
           premioActivado: true,
         });
 
-        alert(`¡${cliente.nombre} ganó una pizza!`);
+        alert(`¡${cliente.nombre} ganó: ${nombrePremio}!`);
       } else {
         await updateDoc(ref, {
           visitas: nuevasVisitas,
@@ -751,7 +788,7 @@ ${link}
         <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
           <h2 className="text-xl font-semibold">Regla de premio</h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Define cuántas visitas necesita un cliente para ganar su premio.
+            Define cuántas visitas necesita un cliente para ganar su premio y cuál será ese premio.
           </p>
 
           {cargandoReglas ? (
@@ -775,11 +812,37 @@ ${link}
                 />
               </div>
 
-              <div className="md:col-span-3 flex items-end">
+              <div className="md:col-span-1">
+                <label className="mb-2 block text-sm font-medium">
+                  Nombre del premio
+                </label>
+                <input
+                  type="text"
+                  value={nombrePremio}
+                  onChange={(e) => setNombrePremio(e.target.value)}
+                  placeholder="Ej: Pizza gratis"
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="md:col-span-1">
+                <label className="mb-2 block text-sm font-medium">
+                  Mensaje del premio
+                </label>
+                <input
+                  type="text"
+                  value={mensajePremio}
+                  onChange={(e) => setMensajePremio(e.target.value)}
+                  placeholder="Ej: Reclama tu premio en el local."
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="md:col-span-1 flex items-end">
                 <button
                   onClick={guardarReglas}
                   disabled={guardandoReglas}
-                  className="rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {guardandoReglas ? "Guardando..." : "Guardar regla"}
                 </button>

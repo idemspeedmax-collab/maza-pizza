@@ -39,6 +39,8 @@ type Promocion = {
 
 const CLIENTE_STORAGE_KEY = "clienteId";
 const DEFAULT_VISITAS_PARA_PREMIO = 5;
+const DEFAULT_NOMBRE_PREMIO = "Pizza gratis";
+const DEFAULT_MENSAJE_PREMIO = "Acércate al local y reclama tu premio disponible.";
 
 function formatFecha(value?: Timestamp | null) {
   if (!value) return "—";
@@ -60,6 +62,8 @@ export default function ClientePage() {
   const [visitasParaPremio, setVisitasParaPremio] = useState(
     DEFAULT_VISITAS_PARA_PREMIO
   );
+  const [nombrePremio, setNombrePremio] = useState(DEFAULT_NOMBRE_PREMIO);
+  const [mensajePremio, setMensajePremio] = useState(DEFAULT_MENSAJE_PREMIO);
 
   const [loading, setLoading] = useState(true);
   const [loadingMovimientos, setLoadingMovimientos] = useState(true);
@@ -189,6 +193,8 @@ export default function ClientePage() {
 
       if (!snap.exists()) {
         setVisitasParaPremio(DEFAULT_VISITAS_PARA_PREMIO);
+        setNombrePremio(DEFAULT_NOMBRE_PREMIO);
+        setMensajePremio(DEFAULT_MENSAJE_PREMIO);
         return;
       }
 
@@ -200,9 +206,23 @@ export default function ClientePage() {
           ? Math.floor(valor)
           : DEFAULT_VISITAS_PARA_PREMIO
       );
+
+      setNombrePremio(
+        typeof data?.nombrePremio === "string" && data.nombrePremio.trim()
+          ? data.nombrePremio.trim()
+          : DEFAULT_NOMBRE_PREMIO
+      );
+
+      setMensajePremio(
+        typeof data?.mensajePremio === "string" && data.mensajePremio.trim()
+          ? data.mensajePremio.trim()
+          : DEFAULT_MENSAJE_PREMIO
+      );
     } catch (error) {
       console.error("Error obteniendo reglas:", error);
       setVisitasParaPremio(DEFAULT_VISITAS_PARA_PREMIO);
+      setNombrePremio(DEFAULT_NOMBRE_PREMIO);
+      setMensajePremio(DEFAULT_MENSAJE_PREMIO);
     } finally {
       setLoadingReglas(false);
     }
@@ -285,17 +305,17 @@ export default function ClientePage() {
                       <div className="text-3xl">🎉</div>
                       <div>
                         <p className="text-xl font-extrabold text-green-800">
-                          ¡Tienes una pizza gratis!
+                          ¡Tienes {nombrePremio}!
                         </p>
                         <p className="mt-1 text-sm text-green-700">
-                          Acércate al local y reclama tu premio disponible.
+                          {mensajePremio}
                         </p>
                       </div>
                     </div>
                   </div>
                 ) : (
                   <p className="text-gray-600">
-                    Sigue visitándonos para ganar tu pizza 🍕
+                    Sigue visitándonos para ganar tu {nombrePremio.toLowerCase()} 🎁
                   </p>
                 )}
 
