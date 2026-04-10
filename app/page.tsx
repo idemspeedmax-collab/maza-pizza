@@ -58,7 +58,11 @@ export default function HomePage() {
   }
 
   function irAdmin() {
-    router.push("/admin/clientes");
+    router.push("/admin");
+  }
+
+  function irARegistro() {
+    router.push("/registro");
   }
 
   function onSubmit(e: React.FormEvent) {
@@ -85,10 +89,8 @@ export default function HomePage() {
     <main className="min-h-screen bg-gradient-to-br from-yellow-100 via-amber-100 to-orange-200 px-4 py-10 text-zinc-900">
       <div className="mx-auto flex min-h-[85vh] max-w-5xl items-center justify-center">
         <div className="grid w-full gap-6 md:grid-cols-2">
-          {/* IZQUIERDA */}
           <section className="rounded-3xl bg-white/90 p-8 shadow-xl ring-1 ring-black/5 backdrop-blur text-center">
-            {/* LOGO */}
-            <div className="flex justify-center mb-4">
+            <div className="mb-4 flex justify-center">
               <Image
                 src="/logo.png"
                 alt="Maza & Pizza"
@@ -111,7 +113,7 @@ export default function HomePage() {
             </p>
 
             <div className="mt-6 grid gap-3 text-left">
-              <div className="flex items-center gap-3 bg-zinc-100 p-3 rounded-xl">
+              <div className="flex items-center gap-3 rounded-xl bg-zinc-100 p-3">
                 🎁
                 <div>
                   <p className="font-semibold">Premios por visitas</p>
@@ -121,7 +123,7 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 bg-zinc-100 p-3 rounded-xl">
+              <div className="flex items-center gap-3 rounded-xl bg-zinc-100 p-3">
                 📱
                 <div>
                   <p className="font-semibold">Tarjeta digital</p>
@@ -131,7 +133,7 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 bg-zinc-100 p-3 rounded-xl">
+              <div className="flex items-center gap-3 rounded-xl bg-zinc-100 p-3">
                 ⚡
                 <div>
                   <p className="font-semibold">Acceso rápido</p>
@@ -143,15 +145,13 @@ export default function HomePage() {
             </div>
           </section>
 
-          {/* DERECHA */}
           <section className="rounded-3xl bg-white p-8 shadow-xl ring-1 ring-black/5">
-            <h2 className="text-2xl font-bold mb-4">
+            <h2 className="mb-4 text-2xl font-bold">
               Bienvenido
             </h2>
 
-            {/* CLIENTE */}
-            <div className="bg-zinc-50 p-5 rounded-2xl mb-5">
-              <h3 className="font-bold mb-2">Consultar mi tarjeta</h3>
+            <div className="mb-5 rounded-2xl bg-zinc-50 p-5">
+              <h3 className="mb-2 font-bold">Consultar mi tarjeta</h3>
 
               <form onSubmit={onSubmit} className="space-y-3">
                 <input
@@ -159,26 +159,40 @@ export default function HomePage() {
                   placeholder="Ej: alvaro pizero"
                   value={clienteInput}
                   onChange={(e) => setClienteInput(e.target.value)}
-                  className="w-full border px-4 py-3 rounded-xl"
+                  className="w-full rounded-xl border px-4 py-3"
                 />
 
                 <button
                   type="submit"
                   disabled={buscando}
-                  className="w-full bg-green-700 text-white py-3 rounded-xl font-semibold"
+                  className="w-full rounded-xl bg-green-700 py-3 font-semibold text-white"
                 >
                   {buscando ? "Ingresando..." : "Consultar mi tarjeta"}
                 </button>
               </form>
             </div>
 
-            {/* ADMIN */}
-            <div className="bg-white p-5 rounded-2xl border">
-              <h3 className="font-bold mb-2">Administrador</h3>
+            <div className="mb-5 rounded-2xl border bg-white p-5">
+              <h3 className="mb-2 font-bold">¿Eres cliente nuevo?</h3>
+
+              <p className="mb-3 text-sm text-zinc-600">
+                Regístrate una sola vez y tu tarjeta quedará guardada en tu celular.
+              </p>
+
+              <button
+                onClick={irARegistro}
+                className="w-full rounded-xl bg-red-600 py-3 font-semibold text-white"
+              >
+                Registrarme
+              </button>
+            </div>
+
+            <div className="rounded-2xl border bg-white p-5">
+              <h3 className="mb-2 font-bold">Administrador</h3>
 
               <button
                 onClick={irAdmin}
-                className="w-full bg-black text-white py-3 rounded-xl font-semibold"
+                className="w-full rounded-xl bg-black py-3 font-semibold text-white"
               >
                 Ir al panel de administración
               </button>
