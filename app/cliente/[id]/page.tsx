@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  Timestamp,
+  where,
+} from "firebase/firestore";
 import { QRCodeSVG } from "qrcode.react";
 import { db } from "@/lib/firebase";
 
@@ -12,7 +20,27 @@ type Cliente = {
   premioDisponible: boolean;
 };
 
+type Movimiento = {
+  id: string;
+  clienteId: string;
+  clienteNombre: string;
+  tipo: "visita" | "canje";
+  visitasAntes: number;
+  visitasDespues: number;
+  premioActivado: boolean;
+  createdAt?: Timestamp | null;
+};
+
 const CLIENTE_STORAGE_KEY = "clienteId";
+
+function formatFecha(value?: Timestamp | null) {
+  if (!value) return "—";
+  try {
+    return value.toDate().toLocaleString("es-PE");
+  } catch {
+    return "—";
+  }
+}
 
 export default function ClientePage() {
   const params = useParams();
@@ -20,14 +48,16 @@ export default function ClientePage() {
   const id = String(params.id).toLowerCase();
 
   const [cliente, setCliente] = useState<Cliente | null>(null);
+  const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMovimientos, setLoadingMovimientos] = useState(true);
 
   const enlaceCliente = useMemo(() => {
     if (typeof window === "undefined") return "";
     return `${window.location.origin}/cliente/${id}`;
   }, [id]);
 
-  const obtenerCliente = async () => {
+  async function obtenerCliente() {
     try {
       const clienteRef = doc(db, "clientes", id);
       const snap = await getDoc(clienteRef);
@@ -61,13 +91,62 @@ export default function ClientePage() {
     } catch (error) {
       console.error(error);
       setCliente(null);
-    } finally {
-      setLoading(false);
     }
-  };
+  }
+
+  async function obtenerMovimientos() {
+    try {
+      setLoadingMovimientos(true);
+
+      const q = query(
+        collection(db, "cliente_movimientos"),
+        where("clienteId", "==", id)
+      );
+
+      const snap = await getDocs(q);
+
+      const data: Movimiento[] = snap.docs.map((d) => {
+        const x = d.data();
+        return {
+          id: d.id,
+          clienteId: x.clienteId ?? "",
+          clienteNombre: x.clienteNombre ?? "",
+          tipo: x.tipo ?? "visita",
+          visitasAntes: Number(x.visitasAntes ?? 0),
+          visitasDespues: Number(x.visitasDespues ?? 0),
+          premioActivado: Boolean(x.premioActivado ?? false),
+          createdAt: x.createdAt ?? null,
+        };
+      });
+
+      data.sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() ?? 0;
+        const bTime = b.createdAt?.toMillis?.() ?? 0;
+        return bTime - aTime;
+      });
+
+      setMovimientos(data);
+    } catch (error) {
+      console.error("Error obteniendo movimientos del cliente:", error);
+      setMovimientos([]);
+    } finally {
+      setLoadingMovimientos(false);
+    }
+  }
 
   useEffect(() => {
-    if (id) obtenerCliente();
+    async function cargar() {
+      try {
+        setLoading(true);
+        await Promise.all([obtenerCliente(), obtenerMovimientos()]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    if (id) {
+      cargar();
+    }
   }, [id]);
 
   function cambiarCliente() {
@@ -81,84 +160,172 @@ export default function ClientePage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-yellow-200 to-orange-300 px-4 py-10">
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-6 text-center">
-        <h1 className="text-3xl font-bold text-red-600">
-          Maza & Pizza 🍕
-        </h1>
+    <main className="min-h-screen bg-gradient-to-br from-yellow-200 to-orange-300 px-4 py-10">
+      <div className="mx-auto w-full max-w-5xl">
+        <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
+          <div className="rounded-2xl bg-white p-6 text-center shadow-xl">
+            <h1 className="text-3xl font-bold text-red-600">
+              Maza & Pizza 🍕
+            </h1>
 
-        <p className="text-gray-600 mt-1 mb-4">
-          Tu tarjeta de fidelidad
-        </p>
-
-        {loading ? (
-          <p className="text-gray-500">Cargando...</p>
-        ) : !cliente ? (
-          <div className="space-y-4">
-            <p className="text-red-600 font-semibold">
-              Cliente no encontrado
+            <p className="mt-1 mb-4 text-gray-600">
+              Tu tarjeta de fidelidad
             </p>
 
-            <button
-              onClick={cambiarCliente}
-              className="w-full rounded-xl bg-black text-white py-3 font-semibold"
-            >
-              Volver al inicio
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-5">
-            <h2 className="text-2xl font-semibold text-gray-800">
-              {cliente.nombre}
-            </h2>
+            {loading ? (
+              <p className="text-gray-500">Cargando...</p>
+            ) : !cliente ? (
+              <div className="space-y-4">
+                <p className="font-semibold text-red-600">
+                  Cliente no encontrado
+                </p>
 
-            <div className="bg-gray-100 rounded-xl p-4">
-              <p className="text-gray-700 text-lg">Visitas</p>
-              <p className="text-3xl font-bold text-green-700">
-                {cliente.visitas} / 5
-              </p>
-            </div>
-
-            {cliente.premioDisponible ? (
-              <div className="bg-green-100 text-green-800 p-4 rounded-xl font-bold text-lg">
-                🎉 ¡Tienes una pizza gratis!
+                <button
+                  onClick={cambiarCliente}
+                  className="w-full rounded-xl bg-black py-3 font-semibold text-white"
+                >
+                  Volver al inicio
+                </button>
               </div>
             ) : (
-              <p className="text-gray-600">
-                Sigue visitándonos para ganar tu pizza 🍕
-              </p>
-            )}
+              <div className="space-y-5">
+                <h2 className="text-2xl font-semibold text-gray-800">
+                  {cliente.nombre}
+                </h2>
 
-            <div className="rounded-xl border border-gray-200 bg-white p-4">
-              <p className="text-sm font-semibold text-gray-700 mb-3">
-                Tu código QR
-              </p>
+                <div className="rounded-xl bg-gray-100 p-4">
+                  <p className="text-lg text-gray-700">Visitas</p>
+                  <p className="text-3xl font-bold text-green-700">
+                    {cliente.visitas} / 5
+                  </p>
+                </div>
 
-              <div className="flex justify-center">
-                {enlaceCliente ? (
-                  <QRCodeSVG value={enlaceCliente} size={180} />
+                {cliente.premioDisponible ? (
+                  <div className="rounded-xl bg-green-100 p-4 text-lg font-bold text-green-800">
+                    🎉 ¡Tienes una pizza gratis!
+                  </div>
                 ) : (
-                  <p className="text-gray-500">Generando QR...</p>
+                  <p className="text-gray-600">
+                    Sigue visitándonos para ganar tu pizza 🍕
+                  </p>
                 )}
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="mb-3 text-sm font-semibold text-gray-700">
+                    Tu código QR
+                  </p>
+
+                  <div className="flex justify-center">
+                    {enlaceCliente ? (
+                      <QRCodeSVG value={enlaceCliente} size={180} />
+                    ) : (
+                      <p className="text-gray-500">Generando QR...</p>
+                    )}
+                  </div>
+
+                  <p className="mt-3 text-sm text-gray-600">
+                    Muestra este código en tienda para identificar tu tarjeta.
+                  </p>
+
+                  <p className="mt-2 break-all text-xs text-gray-400">
+                    {enlaceCliente}
+                  </p>
+                </div>
+
+                <button
+                  onClick={cambiarCliente}
+                  className="w-full rounded-xl border border-gray-300 py-3 font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cambiar cliente
+                </button>
               </div>
+            )}
+          </div>
 
-              <p className="mt-3 text-sm text-gray-600">
-                Muestra este código en tienda para identificar tu tarjeta.
-              </p>
-
-              <p className="mt-2 break-all text-xs text-gray-400">
-                {enlaceCliente}
+          <div className="rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-4">
+              <h3 className="text-2xl font-bold text-zinc-900">
+                Mi historial
+              </h3>
+              <p className="mt-1 text-sm text-zinc-600">
+                Aquí puedes ver tus visitas registradas y tus canjes.
               </p>
             </div>
 
-            <button
-              onClick={cambiarCliente}
-              className="w-full rounded-xl border border-gray-300 py-3 font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              Cambiar cliente
-            </button>
+            {loading || loadingMovimientos ? (
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-500">
+                Cargando historial...
+              </div>
+            ) : !cliente ? (
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-5 text-sm text-zinc-500">
+                No se pudo cargar el historial porque el cliente no existe.
+              </div>
+            ) : movimientos.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-zinc-500">
+                Aún no tienes movimientos registrados.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {movimientos.map((mov) => (
+                  <div
+                    key={mov.id}
+                    className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          {mov.tipo === "visita" ? (
+                            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                              Visita
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                              Canje
+                            </span>
+                          )}
+
+                          {mov.premioActivado && (
+                            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                              Premio activado
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="mt-3 text-sm text-zinc-600">
+                          Fecha:{" "}
+                          <span className="font-medium text-zinc-800">
+                            {formatFecha(mov.createdAt)}
+                          </span>
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-white px-4 py-3 text-sm text-zinc-700">
+                        <p>
+                          <span className="font-semibold">Antes:</span>{" "}
+                          {mov.visitasAntes}
+                        </p>
+                        <p>
+                          <span className="font-semibold">Después:</span>{" "}
+                          {mov.visitasDespues}
+                        </p>
+                      </div>
+                    </div>
+
+                    {mov.tipo === "visita" ? (
+                      <p className="mt-3 text-sm text-zinc-700">
+                        Se registró una visita en tu tarjeta.
+                      </p>
+                    ) : (
+                      <p className="mt-3 text-sm text-zinc-700">
+                        Se registró el canje de tu premio.
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </main>
   );
