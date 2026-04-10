@@ -38,6 +38,7 @@ type Promocion = {
 };
 
 const CLIENTE_STORAGE_KEY = "clienteId";
+const DEFAULT_VISITAS_PARA_PREMIO = 5;
 
 function formatFecha(value?: Timestamp | null) {
   if (!value) return "—";
@@ -56,10 +57,14 @@ export default function ClientePage() {
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [promocion, setPromocion] = useState<Promocion | null>(null);
+  const [visitasParaPremio, setVisitasParaPremio] = useState(
+    DEFAULT_VISITAS_PARA_PREMIO
+  );
 
   const [loading, setLoading] = useState(true);
   const [loadingMovimientos, setLoadingMovimientos] = useState(true);
   const [loadingPromocion, setLoadingPromocion] = useState(true);
+  const [loadingReglas, setLoadingReglas] = useState(true);
 
   const enlaceCliente = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -175,6 +180,34 @@ export default function ClientePage() {
     }
   }
 
+  async function obtenerReglas() {
+    try {
+      setLoadingReglas(true);
+
+      const ref = doc(db, "configuracion", "reglas");
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        setVisitasParaPremio(DEFAULT_VISITAS_PARA_PREMIO);
+        return;
+      }
+
+      const data = snap.data();
+      const valor = Number(data?.visitasParaPremio ?? DEFAULT_VISITAS_PARA_PREMIO);
+
+      setVisitasParaPremio(
+        Number.isFinite(valor) && valor > 0
+          ? Math.floor(valor)
+          : DEFAULT_VISITAS_PARA_PREMIO
+      );
+    } catch (error) {
+      console.error("Error obteniendo reglas:", error);
+      setVisitasParaPremio(DEFAULT_VISITAS_PARA_PREMIO);
+    } finally {
+      setLoadingReglas(false);
+    }
+  }
+
   useEffect(() => {
     async function cargar() {
       try {
@@ -183,6 +216,7 @@ export default function ClientePage() {
           obtenerCliente(),
           obtenerMovimientos(),
           obtenerPromocionActiva(),
+          obtenerReglas(),
         ]);
       } finally {
         setLoading(false);
@@ -241,7 +275,7 @@ export default function ClientePage() {
                 <div className="rounded-xl bg-gray-100 p-4">
                   <p className="text-lg text-gray-700">Visitas</p>
                   <p className="text-3xl font-bold text-green-700">
-                    {cliente.visitas} / 5
+                    {cliente.visitas} / {loadingReglas ? "..." : visitasParaPremio}
                   </p>
                 </div>
 

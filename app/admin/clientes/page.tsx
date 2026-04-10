@@ -43,6 +43,7 @@ type Movimiento = {
 
 const ADMIN_KEY = "adminAuth";
 const DEFAULT_ADMIN_PASSWORD = "1234";
+const DEFAULT_VISITAS_PARA_PREMIO = 5;
 
 function slugify(text: string) {
   return text
@@ -111,6 +112,12 @@ export default function AdminClientesPage() {
   const [confirmarClave, setConfirmarClave] = useState("");
   const [guardandoClave, setGuardandoClave] = useState(false);
   const [cargandoConfigAdmin, setCargandoConfigAdmin] = useState(true);
+
+  const [visitasParaPremio, setVisitasParaPremio] = useState(
+    DEFAULT_VISITAS_PARA_PREMIO
+  );
+  const [guardandoReglas, setGuardandoReglas] = useState(false);
+  const [cargandoReglas, setCargandoReglas] = useState(true);
 
   const baseUrl = useMemo(() => {
     if (typeof window !== "undefined") return window.location.origin;
@@ -243,12 +250,41 @@ export default function AdminClientesPage() {
     }
   }
 
+  async function cargarReglas() {
+    try {
+      setCargandoReglas(true);
+
+      const ref = doc(db, "configuracion", "reglas");
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        setVisitasParaPremio(DEFAULT_VISITAS_PARA_PREMIO);
+        return;
+      }
+
+      const data = snap.data();
+      const valor = Number(data?.visitasParaPremio ?? DEFAULT_VISITAS_PARA_PREMIO);
+
+      setVisitasParaPremio(
+        Number.isFinite(valor) && valor > 0
+          ? Math.floor(valor)
+          : DEFAULT_VISITAS_PARA_PREMIO
+      );
+    } catch (error) {
+      console.error("Error cargando reglas:", error);
+      setVisitasParaPremio(DEFAULT_VISITAS_PARA_PREMIO);
+    } finally {
+      setCargandoReglas(false);
+    }
+  }
+
   useEffect(() => {
     if (!authChecked) return;
     cargarClientes();
     cargarMovimientos();
     cargarPromocion();
     cargarConfigAdmin();
+    cargarReglas();
   }, [authChecked]);
 
   async function obtenerClaveAdminGuardada() {
@@ -326,6 +362,36 @@ export default function AdminClientesPage() {
       alert("No se pudo guardar la promoción.");
     } finally {
       setGuardandoPromo(false);
+    }
+  }
+
+  async function guardarReglas() {
+    const valor = Number(visitasParaPremio);
+
+    if (!Number.isFinite(valor) || valor <= 0) {
+      alert("Ingresa un número válido mayor a 0.");
+      return;
+    }
+
+    try {
+      setGuardandoReglas(true);
+
+      await setDoc(
+        doc(db, "configuracion", "reglas"),
+        {
+          visitasParaPremio: Math.floor(valor),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      alert("Regla de premio actualizada correctamente.");
+      await cargarReglas();
+    } catch (error) {
+      console.error("Error guardando reglas:", error);
+      alert("No se pudo guardar la regla.");
+    } finally {
+      setGuardandoReglas(false);
     }
   }
 
@@ -506,7 +572,7 @@ export default function AdminClientesPage() {
       const nuevasVisitas = visitasAntes + 1;
       const ref = doc(db, "clientes", cliente.id);
 
-      if (nuevasVisitas >= 5) {
+      if (nuevasVisitas >= visitasParaPremio) {
         await updateDoc(ref, {
           visitas: 0,
           premioDisponible: true,
@@ -680,6 +746,46 @@ ${link}
               {loadingMovimientos ? "..." : visitasHoy}
             </p>
           </div>
+        </section>
+
+        <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-semibold">Regla de premio</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Define cuántas visitas necesita un cliente para ganar su premio.
+          </p>
+
+          {cargandoReglas ? (
+            <div className="mt-5 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+              Cargando regla...
+            </div>
+          ) : (
+            <div className="mt-5 grid gap-4 md:grid-cols-4">
+              <div className="md:col-span-1">
+                <label className="mb-2 block text-sm font-medium">
+                  Visitas para premio
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={visitasParaPremio}
+                  onChange={(e) =>
+                    setVisitasParaPremio(Number(e.target.value || 1))
+                  }
+                  className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+                />
+              </div>
+
+              <div className="md:col-span-3 flex items-end">
+                <button
+                  onClick={guardarReglas}
+                  disabled={guardandoReglas}
+                  className="rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {guardandoReglas ? "Guardando..." : "Guardar regla"}
+                </button>
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -958,7 +1064,7 @@ ${link}
                         <div className="space-y-2 text-sm text-zinc-700">
                           <p>
                             <span className="font-semibold">Visitas:</span>{" "}
-                            {cliente.visitas} / 5
+                            {cliente.visitas} / {visitasParaPremio}
                           </p>
                           <p>
                             <span className="font-semibold">Última visita:</span>{" "}
