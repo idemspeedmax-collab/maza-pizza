@@ -53,6 +53,7 @@ function formatFecha(value?: Timestamp | null) {
 export default function AdminClientesPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
 
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
@@ -74,13 +75,16 @@ export default function AdminClientesPage() {
   const slugGenerado = useMemo(() => slugify(nombre), [nombre]);
   const slugFinal = slugify(slugManual || slugGenerado);
 
-  // 🔐 PROTECCIÓN ADMIN
   useEffect(() => {
     try {
       const auth = localStorage.getItem(ADMIN_KEY);
+
       if (auth !== "ok") {
         window.location.href = "/admin";
+        return;
       }
+
+      setAuthChecked(true);
     } catch (error) {
       console.error("Error validando admin:", error);
       window.location.href = "/admin";
@@ -118,8 +122,9 @@ export default function AdminClientesPage() {
   }
 
   useEffect(() => {
+    if (!authChecked) return;
     cargarClientes();
-  }, []);
+  }, [authChecked]);
 
   async function crearCliente() {
     const nombreLimpio = nombre.trim();
@@ -143,7 +148,7 @@ export default function AdminClientesPage() {
       const existe = await getDoc(ref);
 
       if (existe.exists()) {
-        alert("Ya existe un cliente con ese slug.");
+        alert("Ya existe un cliente con ese slug. Usa otro nombre o cámbialo.");
         return;
       }
 
@@ -162,12 +167,78 @@ export default function AdminClientesPage() {
       setSlugManual("");
 
       await cargarClientes();
-      alert("Cliente creado.");
+      alert("Cliente creado correctamente.");
     } catch (error) {
-      console.error(error);
-      alert("Error al crear cliente.");
+      console.error("Error creando cliente:", error);
+      alert("No se pudo crear el cliente.");
     } finally {
       setGuardando(false);
+    }
+  }
+
+  function iniciarEdicion(cliente: Cliente) {
+    setEditandoId(cliente.id);
+    setEditNombre(cliente.nombre || "");
+    setEditTelefono(cliente.telefono || "");
+  }
+
+  function cancelarEdicion() {
+    setEditandoId(null);
+    setEditNombre("");
+    setEditTelefono("");
+  }
+
+  async function guardarEdicion(clienteId: string) {
+    const nombreLimpio = editNombre.trim();
+    const telefonoLimpio = editTelefono.trim();
+
+    if (!nombreLimpio) {
+      alert("El nombre no puede estar vacío.");
+      return;
+    }
+
+    try {
+      setGuardandoEdicion(true);
+
+      await updateDoc(doc(db, "clientes", clienteId), {
+        nombre: nombreLimpio,
+        telefono: telefonoLimpio,
+      });
+
+      cancelarEdicion();
+      await cargarClientes();
+      alert("Cliente actualizado correctamente.");
+    } catch (error) {
+      console.error("Error actualizando cliente:", error);
+      alert("No se pudo actualizar el cliente.");
+    } finally {
+      setGuardandoEdicion(false);
+    }
+  }
+
+  async function eliminarCliente(cliente: Cliente) {
+    const ok = window.confirm(
+      `¿Seguro que deseas eliminar a "${cliente.nombre}"?\n\nEsta acción no se puede deshacer.`
+    );
+
+    if (!ok) return;
+
+    try {
+      setAccionandoId(cliente.id);
+
+      await deleteDoc(doc(db, "clientes", cliente.id));
+
+      if (editandoId === cliente.id) {
+        cancelarEdicion();
+      }
+
+      await cargarClientes();
+      alert(`Cliente "${cliente.nombre}" eliminado correctamente.`);
+    } catch (error) {
+      console.error("Error eliminando cliente:", error);
+      alert("No se pudo eliminar el cliente.");
+    } finally {
+      setAccionandoId(null);
     }
   }
 
@@ -175,7 +246,7 @@ export default function AdminClientesPage() {
     try {
       setAccionandoId(cliente.id);
 
-      const nuevasVisitas = cliente.visitas + 1;
+      const nuevasVisitas = (cliente.visitas ?? 0) + 1;
       const ref = doc(db, "clientes", cliente.id);
 
       if (nuevasVisitas >= 5) {
@@ -184,7 +255,8 @@ export default function AdminClientesPage() {
           premioDisponible: true,
           ultimaVisita: serverTimestamp(),
         });
-        alert("🎉 ¡Ganó premio!");
+
+        alert(`¡${cliente.nombre} ganó una pizza!`);
       } else {
         await updateDoc(ref, {
           visitas: nuevasVisitas,
@@ -194,86 +266,367 @@ export default function AdminClientesPage() {
 
       await cargarClientes();
     } catch (error) {
-      console.error(error);
-      alert("Error registrando visita.");
+      console.error("Error sumando visita:", error);
+      alert("No se pudo registrar la visita.");
     } finally {
       setAccionandoId(null);
     }
   }
 
+  async function canjearPremio(cliente: Cliente) {
+    if (!cliente.premioDisponible) {
+      alert("Este cliente aún no tiene premio disponible.");
+      return;
+    }
+
+    try {
+      setAccionandoId(cliente.id);
+
+      await updateDoc(doc(db, "clientes", cliente.id), {
+        premioDisponible: false,
+        premioCanjeadoEn: serverTimestamp(),
+      });
+
+      await cargarClientes();
+      alert(`Premio canjeado para ${cliente.nombre}.`);
+    } catch (error) {
+      console.error("Error canjeando premio:", error);
+      alert("No se pudo canjear el premio.");
+    } finally {
+      setAccionandoId(null);
+    }
+  }
+
+  async function copiarLink(id: string) {
+    const link = `${baseUrl}/cliente/${id}`;
+
+    try {
+      await navigator.clipboard.writeText(link);
+      alert("Link copiado:\n" + link);
+    } catch (error) {
+      console.error("Error copiando link:", error);
+      alert("No se pudo copiar el link.");
+    }
+  }
+
+  function abrirWhatsApp(cliente: Cliente) {
+    const telefonoCliente = (cliente.telefono || "").trim();
+
+    if (!telefonoCliente) {
+      alert("Este cliente no tiene número registrado.");
+      return;
+    }
+
+    const link = `${baseUrl}/cliente/${cliente.id}`;
+
+    const mensaje = `Hola ${cliente.nombre} 👋
+
+Aquí tienes tu tarjeta de cliente de Maza & Pizza 🍕
+
+${link}
+
+¡Ya llevas ${cliente.visitas} visitas! 🔥`;
+
+    const url = `https://wa.me/${telefonoCliente}?text=${encodeURIComponent(
+      mensaje
+    )}`;
+
+    window.open(url, "_blank");
+  }
+
   function cerrarSesion() {
-    localStorage.removeItem(ADMIN_KEY);
+    try {
+      localStorage.removeItem(ADMIN_KEY);
+    } catch (error) {
+      console.error("Error cerrando sesión admin:", error);
+    }
+
     window.location.href = "/admin";
+  }
+
+  if (!authChecked) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-zinc-50 px-4 py-8 text-zinc-900">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500 shadow-sm">
+          Verificando acceso...
+        </div>
+      </main>
+    );
   }
 
   return (
     <main className="min-h-screen bg-zinc-50 px-4 py-8 text-zinc-900">
       <div className="mx-auto max-w-6xl">
-
-        {/* HEADER + LOGOUT */}
-        <div className="mb-8 flex justify-between items-center">
+        <div className="mb-8 flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold">
+            <h1 className="text-3xl font-bold tracking-tight">
               Panel de Clientes
             </h1>
-            <p className="text-sm text-zinc-600">
-              Administración
+            <p className="mt-2 text-sm text-zinc-600">
+              Administra visitas, premios y clientes desde aquí.
             </p>
           </div>
 
           <button
             onClick={cerrarSesion}
-            className="bg-red-600 text-white px-4 py-2 rounded-xl font-semibold"
+            className="shrink-0 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
           >
             Cerrar sesión
           </button>
         </div>
 
-        {/* CREAR CLIENTE */}
-        <div className="bg-white p-5 rounded-xl mb-6">
-          <input
-            placeholder="Nombre"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            className="border p-2 mr-2"
-          />
+        <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-semibold">Crear cliente</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Registra un nuevo cliente y genera su tarjeta digital.
+          </p>
 
-          <button
-            onClick={crearCliente}
-            className="bg-black text-white px-4 py-2 rounded"
-          >
-            Crear
-          </button>
-        </div>
+          <div className="mt-5 grid gap-4 md:grid-cols-4">
+            <div className="md:col-span-1">
+              <label className="mb-2 block text-sm font-medium">
+                Nombre del cliente
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: Luis Campos"
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+              />
+            </div>
 
-        {/* LISTA */}
-        {loading ? (
-          <p>Cargando...</p>
-        ) : (
-          <div className="grid gap-4">
-            {clientes.map((c) => (
-              <div key={c.id} className="bg-white p-4 rounded-xl">
+            <div className="md:col-span-1">
+              <label className="mb-2 block text-sm font-medium">
+                Teléfono
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: 51987654321"
+                value={telefono}
+                onChange={(e) => setTelefono(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+              />
+            </div>
 
-                <h3 className="font-bold">{c.nombre}</h3>
-                <p>Visitas: {c.visitas}</p>
+            <div className="md:col-span-1">
+              <label className="mb-2 block text-sm font-medium">
+                Slug / identificador
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: luis-campos"
+                value={slugManual || slugGenerado}
+                onChange={(e) => setSlugManual(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+              />
+              <p className="mt-2 text-xs text-zinc-500">
+                URL final: /cliente/{slugFinal || "slug-del-cliente"}
+              </p>
+            </div>
 
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={() => sumarVisita(c)}
-                    className="bg-black text-white px-3 py-1 rounded"
-                  >
-                    + Visita
-                  </button>
-
-                  <Link href={`/cliente/${c.id}`}>
-                    Ver tarjeta
-                  </Link>
-                </div>
-
-              </div>
-            ))}
+            <div className="md:col-span-1 flex items-end">
+              <button
+                onClick={crearCliente}
+                disabled={guardando}
+                className="w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {guardando ? "Creando..." : "Crear cliente"}
+              </button>
+            </div>
           </div>
-        )}
+        </section>
+
+        <section>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Clientes registrados</h2>
+            <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm text-zinc-600 shadow-sm">
+              {clientes.length} cliente{clientes.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500 shadow-sm">
+              Cargando clientes...
+            </div>
+          ) : clientes.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-8 text-center text-zinc-500">
+              Aún no hay clientes registrados.
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {clientes.map((cliente) => {
+                const linkCliente = `${baseUrl}/cliente/${cliente.id}`;
+                const ocupando = accionandoId === cliente.id;
+                const enEdicion = editandoId === cliente.id;
+
+                return (
+                  <article
+                    key={cliente.id}
+                    className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+                  >
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        {enEdicion ? (
+                          <div className="space-y-3">
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-zinc-600">
+                                Nombre
+                              </label>
+                              <input
+                                type="text"
+                                value={editNombre}
+                                onChange={(e) => setEditNombre(e.target.value)}
+                                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-zinc-600">
+                                Teléfono
+                              </label>
+                              <input
+                                type="text"
+                                value={editTelefono}
+                                onChange={(e) => setEditTelefono(e.target.value)}
+                                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                              />
+                            </div>
+
+                            <p className="text-xs text-zinc-500">
+                              ID: {cliente.id}
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <h3 className="text-lg font-bold break-words">
+                              {cliente.nombre}
+                            </h3>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              ID: {cliente.id}
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              Tel: {cliente.telefono || "—"}
+                            </p>
+                          </>
+                        )}
+                      </div>
+
+                      <span
+                        className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
+                          cliente.premioDisponible
+                            ? "bg-green-100 text-green-700"
+                            : "bg-zinc-100 text-zinc-600"
+                        }`}
+                      >
+                        {cliente.premioDisponible
+                          ? "Premio disponible"
+                          : "Sin premio"}
+                      </span>
+                    </div>
+
+                    {!enEdicion && (
+                      <>
+                        <div className="space-y-2 text-sm text-zinc-700">
+                          <p>
+                            <span className="font-semibold">Visitas:</span>{" "}
+                            {cliente.visitas} / 5
+                          </p>
+                          <p>
+                            <span className="font-semibold">Última visita:</span>{" "}
+                            {formatFecha(cliente.ultimaVisita)}
+                          </p>
+                          <p>
+                            <span className="font-semibold">Premio canjeado:</span>{" "}
+                            {formatFecha(cliente.premioCanjeadoEn)}
+                          </p>
+                        </div>
+
+                        <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs break-all text-zinc-600">
+                          {linkCliente}
+                        </div>
+                      </>
+                    )}
+
+                    {enEdicion ? (
+                      <div className="mt-5 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => guardarEdicion(cliente.id)}
+                          disabled={guardandoEdicion}
+                          className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {guardandoEdicion ? "Guardando..." : "Guardar"}
+                        </button>
+
+                        <button
+                          onClick={cancelarEdicion}
+                          disabled={guardandoEdicion}
+                          className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-5 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => sumarVisita(cliente)}
+                          disabled={ocupando}
+                          className="rounded-xl bg-black px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {ocupando ? "Procesando..." : "+ Visita"}
+                        </button>
+
+                        <button
+                          onClick={() => canjearPremio(cliente)}
+                          disabled={ocupando || !cliente.premioDisponible}
+                          className="rounded-xl bg-amber-500 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Canjear
+                        </button>
+
+                        <button
+                          onClick={() => copiarLink(cliente.id)}
+                          className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50"
+                        >
+                          Copiar link
+                        </button>
+
+                        <button
+                          onClick={() => abrirWhatsApp(cliente)}
+                          className="rounded-xl bg-green-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          WhatsApp
+                        </button>
+
+                        <Link
+                          href={`/cliente/${cliente.id}`}
+                          className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-sm font-medium hover:bg-zinc-50"
+                        >
+                          Ver tarjeta
+                        </Link>
+
+                        <button
+                          onClick={() => iniciarEdicion(cliente)}
+                          disabled={ocupando}
+                          className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Editar
+                        </button>
+
+                        <button
+                          onClick={() => eliminarCliente(cliente)}
+                          disabled={ocupando}
+                          className="col-span-2 rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );
