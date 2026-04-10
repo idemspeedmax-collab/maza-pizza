@@ -1,0 +1,584 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  updateDoc,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+
+type Cliente = {
+  id: string;
+  nombre: string;
+  telefono?: string;
+  visitas: number;
+  premioDisponible: boolean;
+  ultimaVisita?: Timestamp | null;
+  premioCanjeadoEn?: Timestamp | null;
+  createdAt?: Timestamp | null;
+};
+
+function slugify(text: string) {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function formatFecha(value?: Timestamp | null) {
+  if (!value) return "—";
+  try {
+    return value.toDate().toLocaleString("es-PE");
+  } catch {
+    return "—";
+  }
+}
+
+export default function AdminClientesPage() {
+  const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [nombre, setNombre] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [slugManual, setSlugManual] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [editNombre, setEditNombre] = useState("");
+  const [editTelefono, setEditTelefono] = useState("");
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+
+  const [accionandoId, setAccionandoId] = useState<string | null>(null);
+
+  const baseUrl = useMemo(() => {
+    if (typeof window !== "undefined") return window.location.origin;
+    return "http://localhost:3000";
+  }, []);
+
+  const slugGenerado = useMemo(() => slugify(nombre), [nombre]);
+  const slugFinal = slugify(slugManual || slugGenerado);
+
+  async function cargarClientes() {
+    try {
+      setLoading(true);
+
+      const q = query(collection(db, "clientes"), orderBy("nombre"));
+      const snap = await getDocs(q);
+
+      const data: Cliente[] = snap.docs.map((d) => {
+        const x = d.data();
+        return {
+          id: d.id,
+          nombre: x.nombre ?? "",
+          telefono: x.telefono ?? "",
+          visitas: Number(x.visitas ?? 0),
+          premioDisponible: Boolean(x.premioDisponible ?? false),
+          ultimaVisita: x.ultimaVisita ?? null,
+          premioCanjeadoEn: x.premioCanjeadoEn ?? null,
+          createdAt: x.createdAt ?? null,
+        };
+      });
+
+      setClientes(data);
+    } catch (error) {
+      console.error("Error cargando clientes:", error);
+      alert("No se pudieron cargar los clientes.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    cargarClientes();
+  }, []);
+
+  async function crearCliente() {
+    const nombreLimpio = nombre.trim();
+    const telefonoLimpio = telefono.trim();
+    const slug = slugFinal;
+
+    if (!nombreLimpio) {
+      alert("Ingresa el nombre del cliente.");
+      return;
+    }
+
+    if (!slug) {
+      alert("No se pudo generar el slug del cliente.");
+      return;
+    }
+
+    try {
+      setGuardando(true);
+
+      const ref = doc(db, "clientes", slug);
+      const existe = await getDoc(ref);
+
+      if (existe.exists()) {
+        alert("Ya existe un cliente con ese slug. Usa otro nombre o cámbialo.");
+        return;
+      }
+
+      await setDoc(ref, {
+        nombre: nombreLimpio,
+        telefono: telefonoLimpio,
+        visitas: 0,
+        premioDisponible: false,
+        ultimaVisita: null,
+        premioCanjeadoEn: null,
+        createdAt: serverTimestamp(),
+      });
+
+      setNombre("");
+      setTelefono("");
+      setSlugManual("");
+
+      await cargarClientes();
+      alert("Cliente creado correctamente.");
+    } catch (error) {
+      console.error("Error creando cliente:", error);
+      alert("No se pudo crear el cliente.");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  function iniciarEdicion(cliente: Cliente) {
+    setEditandoId(cliente.id);
+    setEditNombre(cliente.nombre || "");
+    setEditTelefono(cliente.telefono || "");
+  }
+
+  function cancelarEdicion() {
+    setEditandoId(null);
+    setEditNombre("");
+    setEditTelefono("");
+  }
+
+  async function guardarEdicion(clienteId: string) {
+    const nombreLimpio = editNombre.trim();
+    const telefonoLimpio = editTelefono.trim();
+
+    if (!nombreLimpio) {
+      alert("El nombre no puede estar vacío.");
+      return;
+    }
+
+    try {
+      setGuardandoEdicion(true);
+
+      await updateDoc(doc(db, "clientes", clienteId), {
+        nombre: nombreLimpio,
+        telefono: telefonoLimpio,
+      });
+
+      cancelarEdicion();
+      await cargarClientes();
+      alert("Cliente actualizado correctamente.");
+    } catch (error) {
+      console.error("Error actualizando cliente:", error);
+      alert("No se pudo actualizar el cliente.");
+    } finally {
+      setGuardandoEdicion(false);
+    }
+  }
+
+  async function eliminarCliente(cliente: Cliente) {
+    const ok = window.confirm(
+      `¿Seguro que deseas eliminar a "${cliente.nombre}"?\n\nEsta acción no se puede deshacer.`
+    );
+
+    if (!ok) return;
+
+    try {
+      setAccionandoId(cliente.id);
+
+      await deleteDoc(doc(db, "clientes", cliente.id));
+
+      if (editandoId === cliente.id) {
+        cancelarEdicion();
+      }
+
+      await cargarClientes();
+      alert(`Cliente "${cliente.nombre}" eliminado correctamente.`);
+    } catch (error) {
+      console.error("Error eliminando cliente:", error);
+      alert("No se pudo eliminar el cliente.");
+    } finally {
+      setAccionandoId(null);
+    }
+  }
+
+  async function sumarVisita(cliente: Cliente) {
+    try {
+      setAccionandoId(cliente.id);
+
+      const nuevasVisitas = (cliente.visitas ?? 0) + 1;
+      const ref = doc(db, "clientes", cliente.id);
+
+      if (nuevasVisitas >= 5) {
+        await updateDoc(ref, {
+          visitas: 0,
+          premioDisponible: true,
+          ultimaVisita: serverTimestamp(),
+        });
+
+        alert(`¡${cliente.nombre} ganó una pizza!`);
+      } else {
+        await updateDoc(ref, {
+          visitas: nuevasVisitas,
+          ultimaVisita: serverTimestamp(),
+        });
+      }
+
+      await cargarClientes();
+    } catch (error) {
+      console.error("Error sumando visita:", error);
+      alert("No se pudo registrar la visita.");
+    } finally {
+      setAccionandoId(null);
+    }
+  }
+
+  async function canjearPremio(cliente: Cliente) {
+    if (!cliente.premioDisponible) {
+      alert("Este cliente aún no tiene premio disponible.");
+      return;
+    }
+
+    try {
+      setAccionandoId(cliente.id);
+
+      await updateDoc(doc(db, "clientes", cliente.id), {
+        premioDisponible: false,
+        premioCanjeadoEn: serverTimestamp(),
+      });
+
+      await cargarClientes();
+      alert(`Premio canjeado para ${cliente.nombre}.`);
+    } catch (error) {
+      console.error("Error canjeando premio:", error);
+      alert("No se pudo canjear el premio.");
+    } finally {
+      setAccionandoId(null);
+    }
+  }
+
+  async function copiarLink(id: string) {
+    const link = `${baseUrl}/cliente/${id}`;
+
+    try {
+      await navigator.clipboard.writeText(link);
+      alert("Link copiado:\n" + link);
+    } catch (error) {
+      console.error("Error copiando link:", error);
+      alert("No se pudo copiar el link.");
+    }
+  }
+
+  function abrirWhatsApp(cliente: Cliente) {
+    const telefonoCliente = (cliente.telefono || "").trim();
+
+    if (!telefonoCliente) {
+      alert("Este cliente no tiene número registrado.");
+      return;
+    }
+
+    const link = `${baseUrl}/cliente/${cliente.id}`;
+
+    const mensaje = `Hola ${cliente.nombre} 👋
+
+Aquí tienes tu tarjeta de cliente de Maza & Pizza 🍕
+
+${link}
+
+¡Ya llevas ${cliente.visitas} visitas! 🔥`;
+
+    const url = `https://wa.me/${telefonoCliente}?text=${encodeURIComponent(
+      mensaje
+    )}`;
+
+    window.open(url, "_blank");
+  }
+
+  return (
+    <main className="min-h-screen bg-zinc-50 px-4 py-8 text-zinc-900">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold tracking-tight">
+            Panel de Clientes
+          </h1>
+          <p className="mt-2 text-sm text-zinc-600">
+            Administra visitas, premios y clientes desde aquí.
+          </p>
+        </div>
+
+        <section className="mb-8 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-semibold">Crear cliente</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Registra un nuevo cliente y genera su tarjeta digital.
+          </p>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-4">
+            <div className="md:col-span-1">
+              <label className="mb-2 block text-sm font-medium">
+                Nombre del cliente
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: Luis Campos"
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+              />
+            </div>
+
+            <div className="md:col-span-1">
+              <label className="mb-2 block text-sm font-medium">
+                Teléfono
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: 51987654321"
+                value={telefono}
+                onChange={(e) => setTelefono(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+              />
+            </div>
+
+            <div className="md:col-span-1">
+              <label className="mb-2 block text-sm font-medium">
+                Slug / identificador
+              </label>
+              <input
+                type="text"
+                placeholder="Ej: luis-campos"
+                value={slugManual || slugGenerado}
+                onChange={(e) => setSlugManual(e.target.value)}
+                className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 outline-none transition focus:border-zinc-500"
+              />
+              <p className="mt-2 text-xs text-zinc-500">
+                URL final: /cliente/{slugFinal || "slug-del-cliente"}
+              </p>
+            </div>
+
+            <div className="md:col-span-1 flex items-end">
+              <button
+                onClick={crearCliente}
+                disabled={guardando}
+                className="w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {guardando ? "Creando..." : "Crear cliente"}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Clientes registrados</h2>
+            <span className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm text-zinc-600 shadow-sm">
+              {clientes.length} cliente{clientes.length === 1 ? "" : "s"}
+            </span>
+          </div>
+
+          {loading ? (
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500 shadow-sm">
+              Cargando clientes...
+            </div>
+          ) : clientes.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-8 text-center text-zinc-500">
+              Aún no hay clientes registrados.
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {clientes.map((cliente) => {
+                const linkCliente = `${baseUrl}/cliente/${cliente.id}`;
+                const ocupando = accionandoId === cliente.id;
+                const enEdicion = editandoId === cliente.id;
+
+                return (
+                  <article
+                    key={cliente.id}
+                    className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm"
+                  >
+                    <div className="mb-4 flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        {enEdicion ? (
+                          <div className="space-y-3">
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-zinc-600">
+                                Nombre
+                              </label>
+                              <input
+                                type="text"
+                                value={editNombre}
+                                onChange={(e) => setEditNombre(e.target.value)}
+                                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-zinc-600">
+                                Teléfono
+                              </label>
+                              <input
+                                type="text"
+                                value={editTelefono}
+                                onChange={(e) => setEditTelefono(e.target.value)}
+                                className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                              />
+                            </div>
+
+                            <p className="text-xs text-zinc-500">
+                              ID: {cliente.id}
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <h3 className="text-lg font-bold break-words">
+                              {cliente.nombre}
+                            </h3>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              ID: {cliente.id}
+                            </p>
+                            <p className="mt-1 text-xs text-zinc-500">
+                              Tel: {cliente.telefono || "—"}
+                            </p>
+                          </>
+                        )}
+                      </div>
+
+                      <span
+                        className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${
+                          cliente.premioDisponible
+                            ? "bg-green-100 text-green-700"
+                            : "bg-zinc-100 text-zinc-600"
+                        }`}
+                      >
+                        {cliente.premioDisponible
+                          ? "Premio disponible"
+                          : "Sin premio"}
+                      </span>
+                    </div>
+
+                    {!enEdicion && (
+                      <>
+                        <div className="space-y-2 text-sm text-zinc-700">
+                          <p>
+                            <span className="font-semibold">Visitas:</span>{" "}
+                            {cliente.visitas} / 5
+                          </p>
+                          <p>
+                            <span className="font-semibold">Última visita:</span>{" "}
+                            {formatFecha(cliente.ultimaVisita)}
+                          </p>
+                          <p>
+                            <span className="font-semibold">Premio canjeado:</span>{" "}
+                            {formatFecha(cliente.premioCanjeadoEn)}
+                          </p>
+                        </div>
+
+                        <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs break-all text-zinc-600">
+                          {linkCliente}
+                        </div>
+                      </>
+                    )}
+
+                    {enEdicion ? (
+                      <div className="mt-5 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => guardarEdicion(cliente.id)}
+                          disabled={guardandoEdicion}
+                          className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {guardandoEdicion ? "Guardando..." : "Guardar"}
+                        </button>
+
+                        <button
+                          onClick={cancelarEdicion}
+                          disabled={guardandoEdicion}
+                          className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-5 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => sumarVisita(cliente)}
+                          disabled={ocupando}
+                          className="rounded-xl bg-black px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {ocupando ? "Procesando..." : "+ Visita"}
+                        </button>
+
+                        <button
+                          onClick={() => canjearPremio(cliente)}
+                          disabled={ocupando || !cliente.premioDisponible}
+                          className="rounded-xl bg-amber-500 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Canjear
+                        </button>
+
+                        <button
+                          onClick={() => copiarLink(cliente.id)}
+                          className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50"
+                        >
+                          Copiar link
+                        </button>
+
+                        <button
+                          onClick={() => abrirWhatsApp(cliente)}
+                          className="rounded-xl bg-green-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          WhatsApp
+                        </button>
+
+                        <Link
+                          href={`/cliente/${cliente.id}`}
+                          className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-center text-sm font-medium hover:bg-zinc-50"
+                        >
+                          Ver tarjeta
+                        </Link>
+
+                        <button
+                          onClick={() => iniciarEdicion(cliente)}
+                          disabled={ocupando}
+                          className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Editar
+                        </button>
+
+                        <button
+                          onClick={() => eliminarCliente(cliente)}
+                          disabled={ocupando}
+                          className="col-span-2 rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
